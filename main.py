@@ -34,8 +34,19 @@ app = FastAPI(
 )
 
 # Mount static asset directory
-if os.path.exists("static"):
-    app.mount("/static", StaticFiles(directory="static"), name="static")
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+
+if os.path.exists(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+@app.get("/app.css", include_in_schema=False)
+def serve_root_css():
+    return FileResponse(os.path.join(STATIC_DIR, "app.css"), media_type="text/css")
+
+@app.get("/app.js", include_in_schema=False)
+def serve_root_js():
+    return FileResponse(os.path.join(STATIC_DIR, "app.js"), media_type="application/javascript")
 
 # ── Infrastructure clients ────────────────────────────────────────────────────
 
@@ -224,8 +235,9 @@ def hitl_override(payload: HITLOverride, _: dict = Depends(verify_token)):
 @app.get("/", response_class=FileResponse)
 def dashboard():
     """Serve the Web Dashboard."""
-    if os.path.exists("static/index.html"):
-        return FileResponse("static/index.html")
+    index_path = os.path.join(STATIC_DIR, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
     return HTMLResponse("<h1>UniHack 2026 Ingestion Gateway Online</h1>")
 
 
