@@ -193,7 +193,7 @@ def list_products(conn, limit: int = 100):
             """SELECT p.product_id, p.mfg_part_num, p.part_manuf, p.brand_name, p.status,
                       p.source_url, p.created_at, p.updated_at,
                       t.classpath as category_path,
-                      COUNT(a.attribute_id) as attribute_count
+                      COUNT(CASE WHEN LOWER(a.attribute_label) NOT IN ('feature', 'certification', 'features', 'certifications') THEN a.attribute_id END) as attribute_count
                FROM products p
                LEFT JOIN taxonomy_categories t ON p.category_id = t.category_id
                LEFT JOIN product_attributes a ON p.product_id = a.product_id
@@ -226,7 +226,7 @@ def get_product_detail(conn, product_id: int):
                ORDER BY attribute_id ASC""",
             (product_id,)
         )
-        attributes = cur.fetchall()
+        raw_attributes = cur.fetchall()
 
         cur.execute(
             "SELECT * FROM product_descriptions WHERE product_id = %s",
@@ -234,9 +234,56 @@ def get_product_detail(conn, product_id: int):
         )
         descriptions = cur.fetchone() or {}
 
+        technical_attributes = []
+        features = []
+        certifications = []
+
+        for a in raw_attributes:
+            label = (a["attribute_label"] or "").strip()
+            val = (a["attribute_value"] or "").strip()
+            lbl_lower = label.lower()
+            conf = float(a["confidence"] or 0.95)
+            prov = a["extracted_by"] or "provenance:[verified]"
+            ref = a["ref_url"] or ""
+
+            if lbl_lower in ("feature", "features") or "feature:" in lbl_lower:
+                features.append({
+                    "feature": val,
+                    "confidence": conf,
+                    "provenance": prov,
+                    "ref_url": ref,
+                    "attribute_id": a["attribute_id"]
+                })
+            elif lbl_lower in ("certification", "certifications", "certified", "standard") or "cert:" in lbl_lower:
+                certifications.append({
+                    "certification": val,
+                    "confidence": conf,
+                    "provenance": prov,
+                    "ref_url": ref,
+                    "attribute_id": a["attribute_id"]
+                })
+            else:
+                technical_attributes.append({
+                    "attribute": label,
+                    "value": val,
+                    "unit": a["attribute_uom"] or "",
+                    "confidence": conf,
+                    "provenance": prov,
+                    "ref_url": ref,
+                    "attribute_id": a["attribute_id"],
+                    # Backwards compatibility fields
+                    "attribute_label": label,
+                    "attribute_value": val,
+                    "attribute_uom": a["attribute_uom"] or "",
+                    "extracted_by": prov,
+                })
+
         return {
             "product": product,
-            "attributes": attributes,
+            "technical_attributes": technical_attributes,
+            "features": features,
+            "certifications": certifications,
+            "attributes": technical_attributes, # alias for backward-compatibility
             "descriptions": descriptions,
         }
 

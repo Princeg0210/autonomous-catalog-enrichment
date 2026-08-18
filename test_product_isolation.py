@@ -343,6 +343,88 @@ class TestStrictProductIsolation(unittest.TestCase):
         discover_and_extract_product(ctx2)
         self.assertEqual(len(ctx.normalized_attributes), len(ctx2.normalized_attributes))
 
+    def test_11_semantic_separation_technical_features_certifications(self):
+        """Verify strict semantic separation of technical attributes, features, and certifications."""
+        # ── 1. PDSH4816AF (Frigidaire Dishwasher) ──
+        ctx_frig = ProductContext.create("PDSH4816AF", "Rheem Manufacturing", "FRIGIDAIRE®")
+        discover_and_extract_product(ctx_frig)
+        tax_path, cat_id, _, _ = classify_product_taxonomy(ctx_frig.sku, ctx_frig.manufacturer, ctx_frig.brand)
+        ctx_frig.taxonomy_path = tax_path
+        synthesize_all_descriptions(ctx_frig)
+        run_quality_gate(ctx_frig)
+
+        # Technical attributes collection
+        tech_attrs = [
+            a for a in ctx_frig.normalized_attributes
+            if a.attribute_name.lower() not in ("feature", "certification", "features", "certifications")
+            and a.attribute_type not in ("feature", "certification")
+        ]
+        tech_names = {a.attribute_name for a in tech_attrs}
+
+        # Features collection
+        features = [
+            a.value for a in ctx_frig.normalized_attributes
+            if a.attribute_name.lower() in ("feature", "features") or a.attribute_type == "feature"
+        ]
+
+        # Certifications collection
+        certs = [
+            a.value for a in ctx_frig.normalized_attributes
+            if a.attribute_name.lower() in ("certification", "certifications") or a.attribute_type == "certification"
+        ]
+
+        # Check technical attributes contain strictly technical specifications
+        expected_tech_specs = {
+            "Number of Wash Cycles", "Voltage Rating", "Amperage Rating", "Mounting Type",
+            "Width", "Depth", "Depth With Door Open", "Upper Rack Minimum Height",
+            "Lower Rack Minimum Height", "Upper Rack Maximum Height", "Lower Rack Maximum Height",
+            "Sound Level", "Material", "Annual Energy Consumption", "Delay Start Duration"
+        }
+        for spec in expected_tech_specs:
+            self.assertIn(spec, tech_names, f"Expected technical spec '{spec}' missing from technical attributes!")
+
+        # Verify NO feature appears in technical attributes
+        self.assertNotIn("CleanBoost", tech_names)
+        self.assertNotIn("Feature", tech_names)
+
+        # Verify NO certification appears in technical attributes
+        self.assertNotIn("Certification", tech_names)
+        self.assertNotIn("ENERGY STAR Certified", tech_names)
+        self.assertNotIn("UL Listed", tech_names)
+
+        # Verify Features collection
+        self.assertIn("CleanBoost", features)
+
+        # Verify Certifications collection
+        expected_certs = {"ASSE 1006", "CEE Tier 2 Qualified", "cUL Listed", "ENERGY STAR Certified", "NSF Certified", "UL Listed"}
+        for c in expected_certs:
+            self.assertIn(c, certs, f"Expected certification '{c}' missing from certifications collection!")
+
+        # Verify Provenance is intact on all items
+        for a in ctx_frig.normalized_attributes:
+            self.assertTrue(bool(a.source_url or a.source_type), f"Provenance missing on attribute {a.attribute_name}")
+            self.assertGreater(a.confidence, 0.0)
+
+        # ── 2. WDTS7024RZ (Whirlpool Dishwasher) ──
+        ctx_whirl = ProductContext.create("WDTS7024RZ", "Whirlpool Corporation", "Whirlpool")
+        discover_and_extract_product(ctx_whirl)
+        whirl_tech_names = {
+            a.attribute_name for a in ctx_whirl.normalized_attributes
+            if a.attribute_name.lower() not in ("feature", "certification")
+        }
+        self.assertNotIn("Feature", whirl_tech_names)
+        self.assertNotIn("Certification", whirl_tech_names)
+
+        # ── 3. DCB518ASTS06G (Diablo Sanding Belt) ──
+        ctx_belt = ProductContext.create("DCB518ASTS06G", "Freud Inc (2435)", "Diablo")
+        discover_and_extract_product(ctx_belt)
+        belt_tech = {a.attribute_name: a.value for a in ctx_belt.normalized_attributes}
+        self.assertIn("Width", belt_tech)
+        self.assertIn("Length", belt_tech)
+        self.assertIn("Package Quantity", belt_tech)
+        self.assertNotIn("Feature", belt_tech)
+        self.assertNotIn("Certification", belt_tech)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -33,6 +33,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const drawerBrandManuf = document.getElementById('drawer-brand-manuf');
   const drawerTaxonomy = document.getElementById('drawer-taxonomy');
   const drawerAttrsTbody = document.getElementById('drawer-attrs-tbody');
+  const drawerFeaturesTbody = document.getElementById('drawer-features-tbody');
+  const drawerCertsTbody = document.getElementById('drawer-certs-tbody');
 
   // Descriptions
   const descShort = document.getElementById('desc-short');
@@ -63,19 +65,19 @@ document.addEventListener('DOMContentLoaded', () => {
       desc: 'Dispatch single SKUs or batch simulation into Celery worker cluster.',
     },
     hitl: {
-      title: 'Human-In-The-Loop Review Queue',
-      desc: 'Inspect flagged LOV anomalies and approve manual overrides.',
+      title: 'Human-In-The-Loop (HITL) Queue',
+      desc: 'Review pipeline exceptions, missing mandatory attributes, and schema mismatches.',
     },
   };
 
-  // ── Navigation ────────────────────────────────────────────────────────────
-  navItems.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const targetTab = btn.getAttribute('data-tab');
-      navItems.forEach(n => n.classList.remove('active'));
-      tabPanes.forEach(p => p.classList.remove('active'));
+  // ── Tab Switching ──────────────────────────────────────────────────────────
+  document.querySelectorAll('.nav-item').forEach(button => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
 
-      btn.classList.add('active');
+      button.classList.add('active');
+      const targetTab = button.getAttribute('data-tab');
       const pane = document.getElementById(`tab-${targetTab}`);
       if (pane) pane.classList.add('active');
 
@@ -200,7 +202,9 @@ document.addEventListener('DOMContentLoaded', () => {
       drawerTitle.textContent = 'Loading SKU...';
       drawerBrandManuf.textContent = 'Fetching isolated product record...';
       drawerTaxonomy.textContent = '...';
-      drawerAttrsTbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">Loading product attributes...</td></tr>`;
+      drawerAttrsTbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">Loading technical attributes...</td></tr>`;
+      if (drawerFeaturesTbody) drawerFeaturesTbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted">Loading features...</td></tr>`;
+      if (drawerCertsTbody) drawerCertsTbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted">Loading certifications...</td></tr>`;
       setDesc(descShort, charShort, '—', 50);
       setDesc(descLong, charLong, '—', 250);
       setDesc(descMobile, charMobile, '—', 30);
@@ -212,7 +216,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!data || !data.product) return;
 
       const p = data.product;
-      const attrs = data.attributes || [];
+      const techAttrs = data.technical_attributes || data.attributes || [];
+      const features = data.features || [];
+      const certs = data.certifications || [];
       const descs = data.descriptions || {};
 
       drawerTitle.textContent = `${p.mfg_part_num}`;
@@ -226,19 +232,47 @@ document.addEventListener('DOMContentLoaded', () => {
       setDesc(descInvoice, charInvoice, descs.invoice_desc || '—', 100);
       setDesc(descRetail, charRetail, descs.retail_desc || '—', 150);
 
-      // Attributes
-      if (attrs.length === 0) {
+      // 1. Technical Attributes (Strictly specs only)
+      if (techAttrs.length === 0) {
         drawerAttrsTbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">No verified technical attributes found.</td></tr>`;
       } else {
-        drawerAttrsTbody.innerHTML = attrs.map(a => `
+        drawerAttrsTbody.innerHTML = techAttrs.map(a => `
           <tr>
-            <td><strong>${escapeHtml(a.attribute_label)}</strong></td>
-            <td class="text-mono">${escapeHtml(a.attribute_value)}</td>
-            <td><span class="badge ${a.attribute_uom ? 'badge-hitl' : 'badge-pending'}">${escapeHtml(a.attribute_uom || 'Unitless')}</span></td>
+            <td><strong>${escapeHtml(a.attribute || a.attribute_label)}</strong></td>
+            <td class="text-mono">${escapeHtml(a.value || a.attribute_value)}</td>
+            <td><span class="badge ${a.unit || a.attribute_uom ? 'badge-hitl' : 'badge-pending'}">${escapeHtml(a.unit || a.attribute_uom || 'Unitless')}</span></td>
             <td><span class="text-muted">${Math.round((a.confidence || 0.9) * 100)}%</span></td>
-            <td><span class="text-muted" style="font-size:0.75rem;">${escapeHtml(a.extracted_by || 'provenance:[verified]')}</span></td>
+            <td><span class="text-muted" style="font-size:0.75rem;">${escapeHtml(a.provenance || a.extracted_by || 'provenance:[verified]')}</span></td>
           </tr>
         `).join('');
+      // 2. Distinct Features Section
+      if (drawerFeaturesTbody) {
+        if (features.length === 0) {
+          drawerFeaturesTbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted">No verified features found.</td></tr>`;
+        } else {
+          drawerFeaturesTbody.innerHTML = features.map(f => `
+            <tr>
+              <td><strong style="color: var(--accent-cyan);">${escapeHtml(f.feature)}</strong></td>
+              <td><span class="text-muted">${Math.round((f.confidence || 0.9) * 100)}%</span></td>
+              <td><span class="text-muted" style="font-size:0.75rem;">${escapeHtml(f.provenance || 'provenance:[verified]')}</span></td>
+            </tr>
+          `).join('');
+        }
+      }
+
+      // 3. Certifications & Standards Section
+      if (drawerCertsTbody) {
+        if (certs.length === 0) {
+          drawerCertsTbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted">No verified certifications found.</td></tr>`;
+        } else {
+          drawerCertsTbody.innerHTML = certs.map(c => `
+            <tr>
+              <td><strong style="color: var(--accent-emerald);">${escapeHtml(c.certification)}</strong></td>
+              <td><span class="text-muted">${Math.round((c.confidence || 0.9) * 100)}%</span></td>
+              <td><span class="text-muted" style="font-size:0.75rem;">${escapeHtml(c.provenance || 'provenance:[verified]')}</span></td>
+            </tr>
+          `).join('');
+        }
       }
 
       drawerBackdrop.classList.add('active');
