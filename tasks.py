@@ -28,9 +28,14 @@ logger = logging.getLogger("enrich_tasks")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/enrichment_db")
 
-celery_app = Celery("tasks", broker=REDIS_URL, backend=REDIS_URL)
+celery_app = Celery("tasks", broker=REDIS_URL)
+celery_app.conf.update(
+    result_backend=None,
+    broker_connection_timeout=1,
+    broker_connection_retry_on_startup=False,
+)
 try:
-    redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+    redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=1)
 except Exception:
     redis_client = None
 
@@ -101,7 +106,7 @@ def enrich_product_core(mfg_part_num: str, manufacturer: str, brand_name: str = 
         try:
             with get_conn() as conn:
                 category_id = get_or_create_category(conn, context.taxonomy_path)
-                primary_source = context.source_references[0] if context.source_references else None
+                primary_source = context.validated_sources[0].get("url") if context.validated_sources else (mfr_url or "https://authoritative-catalog.unilog.com")
                 product_id = insert_product(
                     conn, context.sku, context.manufacturer, context.brand,
                     primary_source, category_id=category_id, status=context.status

@@ -116,9 +116,10 @@ class ResilientCache:
         self._local_exp.clear()
 
 redis_client = ResilientCache(redis.from_url(REDIS_URL, decode_responses=True))
-celery_app   = Celery("tasks", broker=CELERY_BROKER, backend=REDIS_URL)
+celery_app   = Celery("tasks", broker=CELERY_BROKER)
 celery_app.conf.update(
-    broker_connection_timeout=2,
+    result_backend=None,
+    broker_connection_timeout=1,
     broker_connection_retry_on_startup=False,
 )
 
