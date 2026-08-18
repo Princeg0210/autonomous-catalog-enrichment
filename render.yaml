@@ -23,4 +23,4 @@ databases:
     region: oregon
     plan: free
     databaseName: enrichment_db
-    user: postgres
+    user: catalog_user
