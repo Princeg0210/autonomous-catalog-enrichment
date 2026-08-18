@@ -118,19 +118,19 @@ class ResilientCache:
 redis_client = ResilientCache(redis.from_url(REDIS_URL, decode_responses=True))
 celery_app   = Celery("tasks", broker=CELERY_BROKER)
 celery_app.conf.update(
+    task_ignore_result=True,
     result_backend=None,
+    task_store_errors_even_if_ignored=False,
     broker_connection_timeout=1,
     broker_connection_retry_on_startup=False,
 )
 
-# Thread pool for non-blocking Celery dispatch (AMQP connect blocks by OS TCP timeout — ~2min)
-# ponytail: 3-second hard deadline; upgrade path: switch to RabbitMQ management API or Redis broker.
 _pool = ThreadPoolExecutor(max_workers=4)
 
 def dispatch_task(name: str, kwargs: dict):
-    """Run celery send_task in a thread with a 3-second hard wall-clock timeout."""
+    """Run celery send_task in a thread with a 1-second timeout."""
     future = _pool.submit(celery_app.send_task, name, kwargs=kwargs)
-    return future.result(timeout=3)
+    return future.result(timeout=1)
 
 # ── Startup ───────────────────────────────────────────────────────────────────
 
@@ -224,33 +224,33 @@ def ingest(
         except Exception:
             pass  # Redis offline — skip cache, dispatch anyway
 
-        # 3. Dispatch to Celery in a background thread with 3s hard deadline
+        # 3. Fast Ingestion Dispatch
         task_id = str(uuid.uuid4())
-        try:
-            kwargs = {
-                "mfg_part_num": payload.mfg_part_num,
-                "manufacturer": payload.manufacturer,
-                "brand_name":   payload.brand_name,
-                "mfr_url":      payload.mfr_url,
-            }
-            task = dispatch_task("tasks.enrich_product", kwargs=kwargs)
-            task_id = task.id
-            try:
-                redis_client.setex(lock_key, 120, "active")
-            except Exception:
-                pass
-            msg = "Dispatched to Celery worker cluster."
-        except (FuturesTimeout, Exception) as e:
-            logger.warning(f"Celery broker unavailable: {type(e).__name__} — enriching in-process")
-            try:
-                from tasks import enrich_product_core
-                enrich_product_core(payload.mfg_part_num, payload.manufacturer, payload.brand_name, payload.mfr_url)
-                msg = "Enriched successfully."
-            except Exception as ex:
-                logger.error(f"In-process enrichment failed: {ex}")
-                msg = "Enrichment queued."
+        kwargs = {
+            "mfg_part_num": payload.mfg_part_num,
+            "manufacturer": payload.manufacturer,
+            "brand_name":   payload.brand_name,
+            "mfr_url":      payload.mfr_url,
+        }
 
-        return {"status": "queued", "task_id": task_id, "message": msg}
+        if "message-broker" in CELERY_BROKER:
+            try:
+                task = dispatch_task("tasks.enrich_product", kwargs=kwargs)
+                task_id = task.id
+                redis_client.setex(lock_key, 120, "active")
+                return {"status": "queued", "task_id": task_id, "message": "Dispatched to Celery worker cluster."}
+            except Exception as e:
+                logger.warning(f"Celery dispatch failed: {e}")
+
+        # Direct in-process enrichment (Render / Cloud / Standalone)
+        try:
+            from tasks import enrich_product_core
+            enrich_product_core(payload.mfg_part_num, payload.manufacturer, payload.brand_name, payload.mfr_url)
+            redis_client.setex(lock_key, 120, "active")
+            return {"status": "queued", "task_id": task_id, "message": "Enriched successfully."}
+        except Exception as ex:
+            logger.error(f"Enrichment engine error: {ex}")
+            raise HTTPException(500, detail=str(ex))
 
     except Exception as e:
         raise HTTPException(500, detail=str(e))
