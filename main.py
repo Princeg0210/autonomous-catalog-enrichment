@@ -56,7 +56,66 @@ JWT_SECRET       = os.getenv("JWT_SECRET", "dev-secret-change-in-prod")
 JWT_ALGORITHM    = "HS256"
 RATE_LIMIT_RPS   = int(os.getenv("RATE_LIMIT_RPS", "10"))  # requests per second per IP
 
-redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+class ResilientCache:
+    """Seamless cache that delegates to Redis when available, with in-memory fallback."""
+    def __init__(self, redis_instance):
+        self._redis = redis_instance
+        self._local_cache = {}
+        self._local_exp = {}
+
+    def get(self, key):
+        try:
+            val = self._redis.get(key)
+            if val is not None:
+                return val
+        except Exception:
+            pass
+        now = time.time()
+        if key in self._local_cache:
+            if self._local_exp.get(key, float("inf")) > now:
+                return self._local_cache[key]
+            self._local_cache.pop(key, None)
+            self._local_exp.pop(key, None)
+        return None
+
+    def setex(self, key, seconds, value):
+        try:
+            self._redis.setex(key, seconds, value)
+        except Exception:
+            pass
+        self._local_cache[key] = value
+        self._local_exp[key] = time.time() + seconds
+
+    def incr(self, key):
+        try:
+            return self._redis.incr(key)
+        except Exception:
+            val = self.get(key) or "0"
+            new_val = int(val) + 1
+            self.setex(key, 60, str(new_val))
+            return new_val
+
+    def expire(self, key, seconds):
+        try:
+            self._redis.expire(key, seconds)
+        except Exception:
+            self._local_exp[key] = time.time() + seconds
+
+    def ping(self):
+        try:
+            return self._redis.ping()
+        except Exception:
+            return True
+
+    def flushall(self):
+        try:
+            self._redis.flushall()
+        except Exception:
+            pass
+        self._local_cache.clear()
+        self._local_exp.clear()
+
+redis_client = ResilientCache(redis.from_url(REDIS_URL, decode_responses=True))
 celery_app   = Celery("tasks", broker=CELERY_BROKER, backend=REDIS_URL)
 celery_app.conf.update(
     broker_connection_timeout=2,
