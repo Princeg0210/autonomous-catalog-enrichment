@@ -357,6 +357,13 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   async function dispatchIngest(payload) {
+    const btnSubmit = document.getElementById('btn-submit-ingest');
+    const origBtnText = btnSubmit ? btnSubmit.innerHTML : '';
+    if (btnSubmit) {
+      btnSubmit.disabled = true;
+      btnSubmit.innerHTML = `<span>Enriching ${payload.mfg_part_num}...</span>`;
+    }
+
     logToConsole(`[Dispatch] Sending SKU: ${payload.mfg_part_num} (${payload.manufacturer})...`, 'text-info');
     try {
       const start = performance.now();
@@ -368,26 +375,28 @@ document.addEventListener('DOMContentLoaded', () => {
       const duration = ((performance.now() - start) / 1000).toFixed(2);
       const data = await res.json();
 
-      if (res.status === 202) {
-        if (data.status === 'queued') {
-          logToConsole(`[${payload.mfg_part_num}] 202 Queued (${duration}s) -> Task: ${data.task_id || 'dispatched'}`, 'text-success');
-          showToast(`SKU ${payload.mfg_part_num} dispatched to Celery!`);
-        } else if (data.status === 'processing') {
-          logToConsole(`[${payload.mfg_part_num}] 202 Locked (${duration}s) -> VLM lock active (Thundering Herd protection)`, 'text-warn');
-          showToast(`SKU ${payload.mfg_part_num} already enriching (Lock active)`, 'warning');
-        } else {
-          logToConsole(`[${payload.mfg_part_num}] Cache hit (${duration}s) -> Served from Redis`, 'text-info');
-        }
-      } else {
-        logToConsole(`[${payload.mfg_part_num}] Status: ${res.status} -> ${JSON.stringify(data)}`, 'text-warn');
-      }
-
-      setTimeout(() => {
+      if (res.ok) {
+        logToConsole(`[${payload.mfg_part_num}] ${data.message || 'Success'} (${duration}s)`, 'text-success');
+        showToast(`SKU ${payload.mfg_part_num} enriched successfully!`);
         refreshAllData();
-      }, 1000);
+
+        // Switch to Catalog view so user sees enriched row
+        setTimeout(() => {
+          refreshAllData();
+          document.getElementById('nav-catalog-btn')?.click();
+        }, 1200);
+      } else {
+        logToConsole(`[${payload.mfg_part_num}] Error (${res.status}): ${JSON.stringify(data)}`, 'text-warn');
+        showToast(`Error: ${data.detail || data.message || 'Failed'}`, 'error');
+      }
     } catch (e) {
       logToConsole(`[Error] Ingestion failed: ${e.message}`, 'text-warn');
       showToast(`Ingestion error: ${e.message}`, 'error');
+    } finally {
+      if (btnSubmit) {
+        btnSubmit.disabled = false;
+        btnSubmit.innerHTML = origBtnText;
+      }
     }
   }
 
