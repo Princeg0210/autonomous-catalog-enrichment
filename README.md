@@ -1,7 +1,7 @@
 # Autonomous AI Product Data Enrichment & Taxonomy Pipeline
 ### *Enterprise-Grade Product Intelligence Engine for Industrial E-Commerce*
 
-![Dashboard Preview](screenshot_1_dashboard.png)
+![Dashboard Preview](ssdash.png)
 
 ---
 
