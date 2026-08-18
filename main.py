@@ -240,13 +240,13 @@ def ingest(
                 pass
             msg = "Dispatched to Celery worker cluster."
         except (FuturesTimeout, Exception) as e:
-            logger.warning(f"Celery unavailable for {payload.mfg_part_num}: {type(e).__name__} — using in-process engine")
+            logger.warning(f"Celery broker unavailable: {type(e).__name__} — enriching in-process")
             try:
-                from tasks import enrich_product_task
-                enrich_product_task(payload.mfg_part_num, payload.manufacturer, payload.brand_name, payload.mfr_url)
-                msg = "Enriched successfully (in-process engine)."
+                from tasks import enrich_product_core
+                enrich_product_core(payload.mfg_part_num, payload.manufacturer, payload.brand_name, payload.mfr_url)
+                msg = "Enriched successfully."
             except Exception as ex:
-                logger.error(f"In-process fallback failed: {ex}")
+                logger.error(f"In-process enrichment failed: {ex}")
                 msg = "Enrichment queued."
 
         return {"status": "queued", "task_id": task_id, "message": msg}
@@ -394,7 +394,11 @@ def api_batch_ingest(background_tasks: BackgroundTasks, limit: int = 50):
                             "brand_name": brand.strip() or "Standard",
                             "mfr_url": mfr_url
                         }
-                        dispatch_task("tasks.enrich_product", kwargs=kwargs)
+                        try:
+                            dispatch_task("tasks.enrich_product", kwargs=kwargs)
+                        except Exception:
+                            from tasks import enrich_product_core
+                            enrich_product_core(mpn.strip(), manuf.strip(), brand.strip() or "Standard", mfr_url)
                         count += 1
                         if count >= max_rows:
                             break
