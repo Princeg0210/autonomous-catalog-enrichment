@@ -1,0 +1,75 @@
+services:
+  # Edge and Ingress / API Gateway Simulation (using Nginx)
+  api-gateway:
+    image: nginx:alpine
+    ports:
+      - '8080:80'
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api-service
+
+  # FastAPI Application Service Layer
+  api-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - '8000:8000'
+    environment:
+      - REDIS_URL=redis://redis-cache:6379/0
+      - CELERY_BROKER_URL=amqp://guest:guest@message-broker:5672//
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/enrichment_db
+    volumes:
+      - .:/app
+    depends_on:
+      - redis-cache
+      - message-broker
+      - db
+
+  # Asynchronous Event Worker (Celery Ingestion/Extraction Worker)
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A tasks worker --loglevel=info
+    volumes:
+      - .:/app
+    environment:
+      - REDIS_URL=redis://redis-cache:6379/0
+      - CELERY_BROKER_URL=amqp://guest:guest@message-broker:5672//
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/enrichment_db
+    depends_on:
+      - redis-cache
+      - message-broker
+      - db
+
+  # In-Memory Cache and Distributed Locks (Redis Cluster simulation)
+  redis-cache:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    command: redis-server --appendonly yes
+
+  # Distributed Message Broker (RabbitMQ)
+  message-broker:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - '5672:5672'
+      - '15672:15672' # Management UI
+
+  # Primary-Replica Persistent Database
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=enrichment_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
