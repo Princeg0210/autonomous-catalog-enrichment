@@ -245,6 +245,8 @@ document.addEventListener('DOMContentLoaded', () => {
             <td><span class="text-muted" style="font-size:0.75rem;">${escapeHtml(a.provenance || a.extracted_by || 'provenance:[verified]')}</span></td>
           </tr>
         `).join('');
+      }
+      
       // 2. Distinct Features Section
       if (drawerFeaturesTbody) {
         if (features.length === 0) {
