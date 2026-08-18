@@ -1,0 +1,26 @@
+services:
+  # Web Service (FastAPI API + Web Dashboard)
+  - type: web
+    name: autonomous-catalog-enrichment
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install --no-cache-dir -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_URL
+        fromDatabase:
+          name: catalog-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+
+databases:
+  # Managed PostgreSQL Database
+  - name: catalog-db
+    region: oregon
+    plan: free
+    databaseName: enrichment_db
+    user: postgres

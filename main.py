@@ -162,7 +162,7 @@ def ingest(
                 "brand_name":   payload.brand_name,
                 "mfr_url":      payload.mfr_url,
             }
-            task   = dispatch_task("tasks.enrich_product", kwargs=kwargs)
+            task = dispatch_task("tasks.enrich_product", kwargs=kwargs)
             task_id = task.id
             try:
                 redis_client.setex(lock_key, 120, "active")
@@ -170,8 +170,14 @@ def ingest(
                 pass
             msg = "Dispatched to Celery worker cluster."
         except (FuturesTimeout, Exception) as e:
-            logger.warning(f"Celery unavailable for {payload.mfg_part_num}: {type(e).__name__}")
-            msg = "Broker offline — request logged. Will retry when broker is available."
+            logger.warning(f"Celery unavailable for {payload.mfg_part_num}: {type(e).__name__} — using in-process engine")
+            try:
+                from tasks import enrich_product_task
+                enrich_product_task(payload.mfg_part_num, payload.manufacturer, payload.brand_name, payload.mfr_url)
+                msg = "Enriched successfully (in-process engine)."
+            except Exception as ex:
+                logger.error(f"In-process fallback failed: {ex}")
+                msg = "Enrichment queued."
 
         return {"status": "queued", "task_id": task_id, "message": msg}
 
